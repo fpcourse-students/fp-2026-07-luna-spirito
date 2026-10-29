@@ -4,10 +4,13 @@ module Level3 where
 
 import Data.Function ((&))
 import Data.List.NonEmpty (NonEmpty (..))
+import Data.List.NonEmpty qualified as NE
 import Data.Map (Map)
 import Data.Map qualified as Map
 import Level1 (wordCount)
 import MetaUtils (todo)
+import Examples qualified as E
+import Data.Foldable1 (maximumBy)
 
 
 -- 3.1. Дерево «левый ребёнок, правый сосед». Непустой корневой
@@ -30,8 +33,7 @@ instance Foldable NeighborTree where
       go [] [] = mempty
       go [] pending = go (reverse pending) []
       go (NLeaf : ts) pending = go ts pending
-      go (NNode x child sibling : ts) pending = todo "3.1 шаг BFS"
-
+      go (NNode x child sibling : ts) pending = f x <> go (sibling : ts) (child : pending)
 
 -- 3.2. Инвертированный индекс: слово -> непустой список документов.
 -- Нормализация та же, что у wordCount. Частота = число вхождений слова
@@ -57,8 +59,15 @@ data IndexNode = IndexNode
 type Index = Map String (NonEmpty IndexNode)
 
 buildInvertedIndex :: [Document] -> Index
-buildInvertedIndex = todo "3.2"
-
+buildInvertedIndex = fmap NE.reverse . foldl' insertDoc Map.empty where
+  insertDoc :: Index -> Document -> Index
+  insertDoc i doc =
+    let
+      tokens = E.tokens $ docContent doc
+      lenTokens = fromIntegral $ length tokens
+      counts :: Map String Int
+      counts = foldl' (\acc w -> Map.insertWith (+) w 1 acc) Map.empty $ tokens
+    in Map.foldlWithKey' (\acc word count -> Map.insertWith (<>) word (IndexNode doc (fromIntegral count/lenTokens) :| []) acc) i counts
 
 -- 3.3. Верните имя документа с наибольшей частотой данного слова.
 -- При равной частоте выберите лексикографически наименьшее имя.
@@ -73,4 +82,6 @@ buildInvertedIndex = todo "3.2"
 -- можно указать несколько файлов, чтобы сравнить частоты в них.
 
 findMostRelevant :: Index -> String -> Maybe String
-findMostRelevant = todo "3.3"
+findMostRelevant i word = fmap
+  (docName . idxDocument . maximumBy (\a b -> idxFrequency a `compare` idxFrequency b))
+  $ Map.lookup word i
