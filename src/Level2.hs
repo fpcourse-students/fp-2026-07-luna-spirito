@@ -43,6 +43,9 @@ import Data.Map (Map)
 import Data.Map qualified as Map
 import Data.Ord (Down (..))
 import MetaUtils (todo, todoImpl)
+import Data.Monoid (First(..))
+import Data.Set (Set)
+import Data.Set qualified as Set
 
 
 -- 2.1. Специализированные свёртки.
@@ -59,17 +62,20 @@ foldNat z s = \case
 -- uncurry, either, foldNat, Z, S и комбинаторы const, id, (.), ($).
 -- Без сопоставления с образцом и явной рекурсии.
 
-sumOrLength :: Either (Nat, Nat) String -> Nat
-sumOrLength = todo "2.1"
+plusNat :: Nat -> Nat -> Nat
+plusNat a b = foldNat b S a
 
+sumOrLength :: Either (Nat, Nat) String -> Nat
+sumOrLength = either (uncurry plusNat) (foldr (const S) Z)
 
 -- 2.2. Реализуйте map через unfoldr, не конструируя результат через [] и (:).
 -- Сопоставлять входной список с образцом можно. Сохраните продуктивность:
 -- take 3 (map' (+1) [1..]) == [2,3,4].
 
 map' :: (a -> b) -> [a] -> [b]
-map' = todo "2.2"
-
+map' f = unfoldr \case
+  [] -> Nothing
+  x:xs -> Just (f x, xs)
 
 -- 2.3. Разное: словарь как частичная функция.
 -- Выберите способ решения сами. Новая запись заменяет прежнее значение.
@@ -79,36 +85,44 @@ map' = todo "2.2"
 newtype MyMap k v = MyMap { myLookup :: k -> Maybe v }
 
 myEmpty :: MyMap k v
-myEmpty = todo "2.3 пустой словарь"
+myEmpty = MyMap $ const Nothing
 
 myInsert :: Eq k => k -> v -> MyMap k v -> MyMap k v
-myInsert = todo "2.3 вставка"
+myInsert k v c = MyMap \q ->
+  if q == k
+    then Just v
+    else myLookup c q
 
 myInsertMany :: (Eq k, Foldable t) => MyMap k v -> t (k, v) -> MyMap k v
-myInsertMany = todo "2.3 массовая вставка"
+myInsertMany = foldl' (flip $ uncurry myInsert)
 
 myDelete :: Eq k => k -> MyMap k v -> MyMap k v
-myDelete = todo "2.3 удаление"
+myDelete k c = MyMap \q ->
+  if q == k
+    then Nothing
+    else myLookup c q
 
 myDeleteMany :: (Eq k, Foldable t) => MyMap k v -> t k -> MyMap k v
-myDeleteMany = todo "2.3 массовое удаление"
-
+myDeleteMany = foldl' (flip myDelete)
 
 -- 2.4. Напишите полные инстансы Semigroup и Monoid.
 -- При объединении общий ключ берётся из ЛЕВОГО словаря, иначе — из правого.
 -- Ограничения на тип значения не нужны: значения не объединяются.
 -- Нейтральный элемент — словарь, возвращающий Nothing для любого ключа.
 
-todoImpl ''Semigroup ''MyMap
-todoImpl ''Monoid ''MyMap
+instance Semigroup (MyMap k v) where
+  l <> r = MyMap \q -> getFirst $ First (myLookup l q) <> First (myLookup r q)
+  -- Можно ещё лаконичнее: MyMap \q -> myLookup l q <|> myLookup r q
 
+instance Monoid (MyMap k v) where
+  mempty = myEmpty
 
 -- 2.5. Напишите полный Foldable (MyMap k) для (Enum k, Bounded k).
 -- Обходите ключи в порядке [minBound .. maxBound], пропуская Nothing.
 -- Каждый существующий ключ даёт одно значение, даже если значения равны.
 
-todoImpl ''Foldable ''MyMap
-
+instance (Enum k, Bounded k) => Foldable (MyMap k) where
+  foldMap f c = foldMap (foldMap f . myLookup c) [minBound @k..maxBound]
 
 -- 2.6. Разное: отформатируйте результат wordCount.
 -- Сначала исключите слова длиной <= smallWordsSize, затем сортируйте
@@ -129,8 +143,13 @@ stdWcShow :: WordCountShow
 stdWcShow = WordCountShow { topSize = 10, smallWordsSize = 3 }
 
 wordCountShow :: WordCountShow -> Map String Int -> String
-wordCountShow = todo "2.6"
-
+wordCountShow (WordCountShow { topSize, smallWordsSize }) c =
+  let
+    filtered = Map.filterWithKey (\k _ -> length k > smallWordsSize) c
+    byCount :: Map Int (Set String)
+    byCount = foldl' (\acc (w, c) -> Map.insertWith (<>) c (Set.singleton w) acc) Map.empty $ Map.toList filtered
+    byCountList = (\(k, vs) -> (k,) <$> Set.toAscList vs) =<< Map.toDescList byCount
+  in unlines $ fmap (\(count, word) -> word <> " : " <> show @Int count) $ take topSize $ byCountList
 
 -- 2.7. Разное: сохраните значения Right в исходном порядке,
 -- пропустите Left. Метод решения выберите сами.
@@ -138,4 +157,4 @@ wordCountShow = todo "2.6"
 -- Конечный префикс результата должен работать на бесконечном входе.
 
 collectRights :: [Either e a] -> [a]
-collectRights = todo "2.7"
+collectRights = foldr (\x xs -> either (const xs) (:xs) x) []
